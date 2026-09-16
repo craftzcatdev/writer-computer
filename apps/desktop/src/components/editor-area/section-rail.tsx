@@ -8,16 +8,18 @@ import { useActiveHeadings } from "./use-active-headings";
 import { useEscKey } from "./use-esc-key";
 import { useMountTransition } from "./use-mount-transition";
 import { showNativeContextMenu } from "./editor-context-menu";
-import { EDITOR_SAFE_SCROLL_MARGIN, EDITOR_SCROLLBAR_GUTTER } from "./editor-scroll-container";
+import { EDITOR_SCROLLBAR_GUTTER } from "./editor-scroll-container";
+import { scrollPosToSafeTop } from "./editor-scroll";
 import "./section-rail.css";
 
-const INACTIVE_WIDTH = 10;
-const ACTIVE_WIDTH = 20;
-const INACTIVE_TICK_SCALE = INACTIVE_WIDTH / ACTIVE_WIDTH;
+// Every tick is the same width; the active one is told apart by opacity alone.
+const TICK_WIDTH = 8;
 const TICK_HEIGHT = 1;
 const TICK_GAP = 6;
-const RAIL_EDGE_INSET = 12;
-const RAIL_INNER_WIDTH = ACTIVE_WIDTH + 2;
+// Below this many headings the rail is noise: a short note needs no map.
+const MIN_HEADINGS = 5;
+const RAIL_EDGE_INSET = 0;
+const RAIL_INNER_WIDTH = TICK_WIDTH + 2;
 const RAIL_ZONE_WIDTH = RAIL_EDGE_INSET + RAIL_INNER_WIDTH;
 const POPOVER_WIDTH = 260;
 const POPOVER_EDGE_INSET = RAIL_EDGE_INSET;
@@ -27,17 +29,6 @@ interface SectionRailProps {
   filePath: string;
   view: EditorView | null;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
-}
-
-function scrollToHeading(view: EditorView, scroller: HTMLElement, heading: DocumentHeading) {
-  const pos = Math.min(heading.pos, view.state.doc.length);
-  const block = view.lineBlockAt(pos);
-  const screenY = view.documentTop + block.top;
-  const scrollerRect = scroller.getBoundingClientRect();
-  const delta = screenY - scrollerRect.top - EDITOR_SAFE_SCROLL_MARGIN;
-  const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-  const next = Math.max(0, Math.min(scroller.scrollTop + delta, max));
-  scroller.scrollTo({ top: next, behavior: "auto" });
 }
 
 function buildHeadingLink(heading: DocumentHeading) {
@@ -90,10 +81,10 @@ export function SectionRail({ filePath, view, scrollContainerRef }: SectionRailP
   const handleTickClick = (heading: DocumentHeading) => {
     const scroller = scrollContainerRef.current;
     if (!view || !scroller) return;
-    scrollToHeading(view, scroller, heading);
+    scrollPosToSafeTop(view, scroller, heading.pos, "auto");
   };
 
-  if (headings.length === 0) return null;
+  if (headings.length < MIN_HEADINGS) return null;
 
   const tickStackHeight =
     headings.length * TICK_HEIGHT + Math.max(0, headings.length - 1) * TICK_GAP;
@@ -133,12 +124,11 @@ export function SectionRail({ filePath, view, scrollContainerRef }: SectionRailP
             {headings.map((heading, i) => {
               const isActive = i === activeIndex;
               const tickStyle: CSSProperties = {
-                width: ACTIVE_WIDTH,
+                width: TICK_WIDTH,
                 height: TICK_HEIGHT,
                 background: "currentColor",
                 opacity: isActive ? 1 : 0.35,
-                transform: isActive ? "scaleX(1)" : `scaleX(${INACTIVE_TICK_SCALE})`,
-                transition: "transform 300ms ease-in, opacity 300ms ease-in",
+                transition: "opacity 300ms ease-in",
                 pointerEvents: "auto",
               };
               return (

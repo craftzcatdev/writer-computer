@@ -6,19 +6,19 @@ Canonical shortcut reference for Writer.
 
 These shortcuts are handled by the global `useKeyboardShortcuts` hook and work regardless of editor focus.
 
-| Shortcut        | Action                        |
-| --------------- | ----------------------------- |
-| Cmd+P           | File search (command palette) |
-| Cmd+O           | Go to file                    |
-| Cmd+N           | Create new note               |
-| Cmd+T           | New tab                       |
-| Cmd+W           | Close current tab             |
-| Cmd+\\          | Toggle sidebar                |
-| Ctrl+Tab        | Next tab                      |
-| Ctrl+Shift+Tab  | Previous tab                  |
-| Cmd+1 ... Cmd+9 | Jump to Nth tab               |
-| Alt+ArrowLeft   | Navigate back                 |
-| Alt+ArrowRight  | Navigate forward              |
+| Shortcut        | Action                                                             |
+| --------------- | ------------------------------------------------------------------ |
+| Cmd+P           | File search (command palette)                                      |
+| Cmd+O           | Go to file                                                         |
+| Cmd+N           | Create new note                                                    |
+| Cmd+T           | New tab                                                            |
+| Cmd+W           | Close current tab; hides the window when only the launcher is left |
+| Cmd+\\          | Toggle sidebar                                                     |
+| Ctrl+Tab        | Next tab                                                           |
+| Ctrl+Shift+Tab  | Previous tab                                                       |
+| Cmd+1 ... Cmd+9 | Jump to Nth tab                                                    |
+| Alt+ArrowLeft   | Navigate back                                                      |
+| Alt+ArrowRight  | Navigate forward                                                   |
 
 In compact single-file windows, sidebar and tab-management shortcuts do not
 create hidden UI state: Cmd+\\, Cmd+T, Ctrl+Tab, Ctrl+Shift+Tab, and Cmd+1 ...
@@ -60,7 +60,6 @@ Standard editing shortcuts provided by CodeMirror's basic setup.
 | Cmd+Shift+Z          | Redo                           |
 | Cmd+A                | Select all                     |
 | Cmd+D                | Select next occurrence         |
-| Cmd+/                | Toggle line comment            |
 | Alt+ArrowUp          | Move line up                   |
 | Alt+ArrowDown        | Move line down                 |
 | Alt+Shift+ArrowUp    | Copy line up                   |
@@ -76,5 +75,6 @@ Standard editing shortcuts provided by CodeMirror's basic setup.
 | Cmd+H                | Find and replace               |
 | Cmd+G                | Find next                      |
 | Cmd+Shift+G          | Find previous                  |
+| Escape               | Close find                     |
 | Alt+Shift+ArrowLeft  | Extend selection by word left  |
 | Alt+Shift+ArrowRight | Extend selection by word right |

@@ -8,6 +8,7 @@ mod ignore;
 mod macos;
 pub mod open_target;
 mod state;
+mod telemetry;
 #[cfg(desktop)]
 mod updater;
 mod watcher;
@@ -34,7 +35,7 @@ const CLI_MENU_UNINSTALL_LABEL: &str = "Uninstall 'writer' Command Line Tool…"
 #[cfg(target_os = "macos")]
 struct CliMenuItem(MenuItem<tauri::Wry>);
 
-const MAIN_WINDOW_LABEL: &str = "main";
+pub(crate) const MAIN_WINDOW_LABEL: &str = "main";
 
 /// Push an open payload into the target window's pending-open queue and emit
 /// the notification so the frontend in that window drains it. Events are
@@ -46,14 +47,33 @@ fn queue_open_event(app: &tauri::AppHandle, label: &str, payload: PendingOpenPay
     let _ = app.emit_to(label, "open:from-drop", payload);
 }
 
+/// Show a window and bring it forward. `set_focus` alone does nothing for a
+/// window the user hid with the last Cmd+W, so every "focus the existing
+/// window" path goes through here.
+fn reveal_window(window: &WebviewWindow) {
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+
 /// Wire up per-window event handlers: drag-drop routes to the window's own
-/// pending-open queue, and the close/destroy event tears down the window's
-/// `WorkspaceState` (which drops the watcher, stopping FSEvents / inotify
-/// subscriptions).
+/// pending-open queue, a close request on the main window hides it instead
+/// of destroying it (destroying the last window would quit the app; hiding
+/// keeps its state so a Dock click brings it straight back), and the destroy
+/// event tears down the window's `WorkspaceState` (which drops the watcher,
+/// stopping FSEvents / inotify subscriptions).
 fn attach_window_handlers(app: &tauri::AppHandle, window: &WebviewWindow) {
     let label = window.label().to_string();
     let handle = app.clone();
+    #[cfg(target_os = "macos")]
+    let this_window = window.clone();
     window.on_window_event(move |event| match event {
+        // macOS only: elsewhere there is no Dock to bring a hidden window
+        // back, so a close must stay a close.
+        #[cfg(target_os = "macos")]
+        WindowEvent::CloseRequested { api, .. } if label == MAIN_WINDOW_LABEL => {
+            api.prevent_close();
+            let _ = this_window.hide();
+        }
         WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. }) => {
             for path in paths {
                 if let Some(payload) = resolve_path(path) {
@@ -99,7 +119,7 @@ pub(crate) fn open_new_workspace_window(
 
     if let Some(existing_label) = app.state::<AppState>().find_by_workspace(&workspace) {
         if let Some(window) = app.get_webview_window(&existing_label) {
-            let _ = window.set_focus();
+            reveal_window(&window);
             queue_open_event(
                 app,
                 &existing_label,
@@ -143,7 +163,7 @@ pub(crate) fn open_standalone_file_window(
 
     if let Some(existing_label) = app.state::<AppState>().find_by_standalone_file(&file) {
         if let Some(window) = app.get_webview_window(&existing_label) {
-            let _ = window.set_focus();
+            reveal_window(&window);
             return Ok(());
         }
     }
@@ -456,13 +476,13 @@ fn handle_single_instance(app: &tauri::AppHandle, argv: Vec<String>) {
         None => {
             // Re-launch with no path: bring an existing window forward.
             if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-                let _ = window.set_focus();
+                reveal_window(&window);
                 return;
             }
             // Fallback: focus any known window.
             if let Some(label) = app.state::<AppState>().labels().first() {
                 if let Some(window) = app.get_webview_window(label) {
-                    let _ = window.set_focus();
+                    reveal_window(&window);
                 }
             }
         }
@@ -494,6 +514,20 @@ pub fn run() {
             // `WorkspaceState` for the `"main"` label.
             let main_state = app.state::<AppState>().get_or_create(MAIN_WINDOW_LABEL);
             init_window_settings(app.handle(), &main_state)?;
+
+            // Telemetry reads its enabled/email values out of the settings
+            // layer above, so it must come after `init_window_settings` and
+            // before anything that can emit an event.
+            {
+                let (enabled, email) = main_state
+                    .settings
+                    .read()
+                    .as_ref()
+                    .map(telemetry::settings_snapshot)
+                    .unwrap_or((false, None));
+                telemetry::init(app.handle(), enabled, email);
+                telemetry::report_app_opened();
+            }
 
             // On macOS, `open -a Writer /path` delivers the path via
             // RunEvent::Opened, not argv. On Linux/Windows the path
@@ -576,6 +610,9 @@ pub fn run() {
             commands::settings::get_setting,
             commands::settings::set_setting,
             commands::settings::reset_setting,
+            telemetry::telemetry_should_prompt,
+            telemetry::telemetry_mark_prompted,
+            telemetry::telemetry_report_declined,
             commands::startup::get_startup_state,
             #[cfg(target_os = "macos")]
             commands::shell_install::cli_status,
@@ -587,6 +624,20 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, _event| {
+            // Dock click with every window hidden or closed: bring the main
+            // window back. It is only ever hidden (never destroyed) by the
+            // close-requested handler, so it still holds its workspace.
+            #[cfg(target_os = "macos")]
+            if let RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } = &_event
+            {
+                if let Some(window) = _app.get_webview_window(MAIN_WINDOW_LABEL) {
+                    reveal_window(&window);
+                }
+            }
+
             // On macOS, dragging a folder/file to the dock icon sends file:// URLs
             // via the RunEvent::Opened event. The variant only exists in the
             // macOS build of Tauri, so the handler must be gated behind a cfg.
@@ -612,7 +663,7 @@ pub fn run() {
                                     } else if let Some(window) = _app.get_webview_window(&label) {
                                         // Standalone window already hosts this
                                         // exact file — just bring it forward.
-                                        let _ = window.set_focus();
+                                        reveal_window(&window);
                                     }
                                 }
                                 None => {
